@@ -40,139 +40,14 @@ button{font-family:inherit;font-size:16px;border:0;border-radius:10px;padding:12
 .note{color:var(--mut);font-size:13px;text-align:center;margin-top:16px}
 .chk{display:flex;align-items:center;gap:12px;margin:0;font-size:17px;color:var(--tx);flex:1}
 .chk input{width:26px;height:26px;flex:none}
+.strike{text-decoration:line-through;opacity:.6}
+.hl{border-color:var(--ac);border-width:2px}
+.sm{padding:6px 12px;font-size:14px}
+.stat span{display:block;font-size:12px}
 </style>
 </head>
 <body>
 <div id="app"></div>
-<script>
-const K="yoga_clients_v1";
-let db={clients:[]},mem=null,armed=null;
-function migrate(){db.clients.forEach(c=>{c.sessions=(c.sessions||[]).map(s=>("done" in s)?s:{date:s.date,done:s.status==="Present"})})}
-function load(){try{const s=localStorage.getItem(K);if(s){db=JSON.parse(s);migrate();return}}catch(e){}if(mem)db=mem}
-function save(){mem=db;try{localStorage.setItem(K,JSON.stringify(db))}catch(e){}}
-const $=id=>document.getElementById(id),app=$("app");
-const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const money=n=>Math.round(n).toLocaleString("en-US");
-const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
-const addDays=(iso,n)=>{const [y,m,d]=iso.split("-").map(Number),t=new Date(y,m-1,d+n);return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0")};
-const byId=id=>db.clients.find(c=>c.id===id);
-const JM=["Farvardin","Ordibehesht","Khordad","Tir","Mordad","Shahrivar","Mehr","Aban","Azar","Dey","Bahman","Esfand"];
-const isJ=()=>db.cal!=="g";
-const PF=new Intl.DateTimeFormat("en-US-u-ca-persian-nu-latn",{year:"numeric",month:"numeric",day:"numeric",timeZone:"UTC"});
-function toJ(iso){const [y,m,d]=iso.split("-").map(Number),p=PF.formatToParts(new Date(Date.UTC(y,m-1,d,12))),g=t=>+(p.find(x=>x.type===t)||p.find(x=>x.type==="relatedYear")).value;return[g("year"),g("month"),g("day")]}
-function fromJ(y,m,d){const t=y*10000+m*100+d;let ms=Date.UTC(y+621,2,21+Math.round((m-1)*30.43)+d-1,12),iso="";for(let i=0;i<12;i++){iso=new Date(ms).toISOString().slice(0,10);const j=toJ(iso),k=j[0]*10000+j[1]*100+j[2];if(k===t)break;ms+=(k<t?1:-1)*864e5}return iso}
-const DN=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-function fd(iso,nw){let w="";if(!nw)try{w=" ("+DN[new Date(iso+"T12:00:00Z").getUTCDay()]+")"}catch(e){}if(!isJ())return iso+w;try{const j=toJ(iso);return j[2]+" "+JM[j[1]-1]+" "+j[0]+w}catch(e){return iso+w}}
-function dateField(i,val){let j;try{j=toJ(val||today())}catch(e){j=[1405,1,1]}const y0=toJ(today())[0];let h='<div class="row" style="gap:8px"><select id="f'+i+'d">';for(let d=1;d<=31;d++)h+='<option'+(d===j[2]?" selected":"")+'>'+d+'</option>';h+='</select><select id="f'+i+'m">';JM.forEach((n,k)=>{h+='<option value="'+(k+1)+'"'+(k+1===j[1]?" selected":"")+'>'+n+'</option>'});h+='</select><select id="f'+i+'y">';for(let y=y0-2;y<=y0+5;y++)h+='<option'+(y===j[0]?" selected":"")+'>'+y+'</option>';return h+'</select></div>'}
-function readDate(i){return fromJ(+$("f"+i+"y").value,+$("f"+i+"m").value,+$("f"+i+"d").value)}
-function toggleCal(){db.cal=isJ()?"g":"j";save();home()}
-let mf="all";
-const GM=["January","February","March","April","May","June","July","August","September","October","November","December"];
-function mkey(iso){if(isJ()){const j=toJ(iso);return j[0]+"-"+String(j[1]).padStart(2,"0")}return iso.slice(0,7)}
-function mlabel(k){const a=k.split("-").map(Number);return (isJ()?JM:GM)[a[1]-1]+" "+a[0]}
-function setMF(v,id){mf=v;detail(id)}
-const WD=[[6,"Saturday"],[0,"Sunday"],[1,"Monday"],[2,"Tuesday"],[3,"Wednesday"],[4,"Thursday"],[5,"Friday"]];
-function wdField(i,val){return WD.map(w=>'<label class="chk" style="margin:6px 0"><input type="checkbox" id="f'+i+'w'+w[0]+'"'+((val||[]).includes(w[0])?" checked":"")+'><span>'+w[1]+'</span></label>').join("")}
-function monthField(i,val){const a=val.split("-").map(Number);let h='<div class="row" style="gap:8px"><select id="f'+i+'m">';(isJ()?JM:GM).forEach((n,k)=>{h+='<option value="'+(k+1)+'"'+(k+1===a[1]?" selected":"")+'>'+n+'</option>'});h+='</select><select id="f'+i+'y">';for(let y=a[0]-1;y<=a[0]+3;y++)h+='<option'+(y===a[0]?" selected":"")+'>'+y+'</option>';return h+'</select></div>'}
-function readField(f,i){if(f.type==="weekdays")return WD.filter(w=>$("f"+i+"w"+w[0]).checked).map(w=>w[0]).join(",");if(f.type==="month")return $("f"+i+"y").value+"-"+String($("f"+i+"m").value).padStart(2,"0");if(f.type==="date"&&isJ())return readDate(i);return $("f"+i).value.trim()}
-function monthDates(key,days){const a=key.split("-").map(Number),st=isJ()?fromJ(a[0],a[1],1):key+"-01",out=[];for(let k=0;k<32;k++){const d=addDays(st,k);if(mkey(d)!==key)break;if(days.includes(new Date(d+"T12:00:00Z").getUTCDay()))out.push(d)}return out}
-function monthInfo(c){const price=x=>x.price!=null?x.price:(c.perSession||(c.packTotal?c.price/c.packTotal:0));const cost={};c.sessions.forEach(x=>{const k=gkey(c,x);cost[k]=(cost[k]||0)+price(x)});let rem=c.payments.reduce((t,x)=>t+x.amount,0);const out={};Object.keys(cost).sort().forEach(k=>{const co=cost[k],used=Math.min(rem,co);rem-=used;out[k]={cost:co,paid:used,due:co-used,settled:co>0&&co-used<0.5}});return out}
-const isPk=c=>c.type==="private"||c.type==="semi"||c.type==="mixed";
-const TL={private:"Private",semi:"Private",mixed:"Private",group:"Group"};
-const typeLabel=c=>TL[c.type||"group"];
-const dp=t=>(db.prices||{})[t]||0;
-function sessionType(c,x){return x.classType||(c.type==="semi"?"semi":"private")}
-function rate(c,t){const configured=dp(t);if(configured)return configured;if(c.type===t&&c.perSession!=null)return +c.perSession||0;return 0}
-function recalcPack(c){if(!isPk(c)||!c.sessions.length)return;c.price=c.sessions.reduce((n,x)=>n+(+x.price||0),0);c.packTotal=Math.max(c.packTotal||0,c.sessions.length)}
-function changeSessionType(id,i,t){const c=byId(id);if(!c||!isPk(c)||!["private","semi"].includes(t))return;const x=c.sessions[i];const newPrice=rate(c,t);if(!newPrice&&!confirm("No price is set for this class type. Set this session price to zero?"))return;x.classType=t;x.price=newPrice;recalcPack(c);save();const y=window.scrollY;detail(id);window.scrollTo(0,y)}
-
-const gkey=(c,x)=>isPk(c)?"p"+String(x.pack||1).padStart(3,"0"):mkey(x.date);
-function packEnd(c,k){return c.sessions.filter(x=>gkey(c,x)===k).map(x=>x.date).sort().pop()}
-function glabel(c,k){if(k[0]!=="p")return mlabel(k);const d=c.sessions.filter(x=>gkey(c,x)===k).map(x=>x.date).sort();return "Pack "+Number(k.slice(1))+(d.length?" ("+fd(d[0],1)+" – "+fd(d[d.length-1],1)+")":"")}
-function payIn(c,k,x){if(!isPk(c))return mkey(x.date)===k;const ks=[...new Set(c.sessions.map(q=>gkey(c,q)))].sort(),i=ks.indexOf(k),lo=i>0?packEnd(c,ks[i-1]):"",hi=i<ks.length-1?packEnd(c,k):"9999-12-31";return x.date>lo&&x.date<=hi}
-function nextDates(start,days,n){const out=[];for(let k=0;k<400&&out.length<n;k++){const d=addDays(start,k);if(days.includes(new Date(d+"T12:00:00Z").getUTCDay()))out.push(d)}return out}
-function nextPack(c){return Math.max(0,...c.sessions.map(x=>x.pack||1))+1}
-function prices(){const p=db.prices||{};form("Class prices (Toman per session)",[{label:"Private",type:"number",val:p.private||0},{label:"Semi-private",type:"number",val:p.semi||0},{label:"Group (monthly)",type:"number",val:p.group||0}],v=>{db.prices={private:parseFloat(v[0])||0,semi:parseFloat(v[1])||0,group:parseFloat(v[2])||0};save();home()},home)}
-function stats(c){if(isPk(c))recalcPack(c);const p=c.sessions.filter(s=>s.done).length,a=c.sessions.filter(s=>!s.done&&s.date<today()).length,paid=c.payments.reduce((t,x)=>t+x.amount,0);return{p,a,left:c.packTotal-p,paid,due:Math.max(0,c.price-paid)}}
-
-function home(){
-  armed=null;mf="all";
-  app.innerHTML='<h1>Clients</h1><input id="q" placeholder="Search by name" autocomplete="off"><div id="list"></div><button class="pri" onclick="clientForm()">+ New client</button><div class="btns"><button class="ghost" onclick="backup()">Copy backup</button><button class="ghost" onclick="restore()">Restore</button></div><button class="ghost" style="width:100%;margin-top:8px" onclick="prices()">Class prices</button><button class="ghost" style="width:100%;margin-top:8px" onclick="toggleCal()">Calendar: '+(isJ()?"Persian":"Gregorian")+' (tap to switch)</button><p class="note">All data is stored only on this phone.'+(db.lastBackup?' Last backup: '+esc(fd(db.lastBackup)):' No backup yet.')+'</p>';
-  $("q").oninput=list;list();
-}
-function list(){
-  const q=$("q").value.trim().toLowerCase();
-  const cs=db.clients.filter(c=>c.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
-  $("list").innerHTML=cs.length?cs.map(c=>{const s=stats(c);return '<div class="card" onclick="detail(\''+c.id+'\')"><div class="row"><b>'+esc(c.name)+'</b>'+(s.due>0?'<span class="badge bad">Due '+money(s.due)+'</span>':'<span class="badge ok">Paid up</span>')+'</div><div class="mut">'+typeLabel(c)+' · '+s.left+' sessions left · '+s.p+' attended</div></div>'}).join(""):'<p class="mut">'+(db.clients.length?"No match.":"No clients yet. Tap “New client” to add your first one.")+'</p>';
-}
-function detail(id){
-  armed=null;const c=byId(id);if(!c)return home();const s=stats(c);
-  const mi=monthInfo(c),ms=[...new Set((isPk(c)?c.sessions:[...c.sessions,...c.payments]).map(x=>gkey(c,x)))].sort().reverse();if(mf!=="all"&&!ms.includes(mf))mf="all";const inM=x=>mf==="all"||gkey(c,x)===mf;const ss=c.sessions.filter(inM).sort((a,b)=>a.date.localeCompare(b.date)),pp=c.payments.filter(x=>mf==="all"||payIn(c,mf,x)).sort((a,b)=>b.date.localeCompare(a.date));
-  const present=ss.filter(x=>x.done).length,absent=ss.filter(x=>!x.done&&x.date<today()).length,mm=mi[mf]||{cost:0,paid:0,due:0},mo=mf!=="all",total=mo?ss.length:c.packTotal,paid=mo?mm.paid:s.paid,due=mo?mm.due:s.due,price=mo?mm.cost:c.price,ps=mo?(ss.length?(ss[0].price!=null?ss[0].price:(c.perSession||0)):0):(c.perSession||0);
-  app.innerHTML='<button class="back" onclick="home()">‹ All clients</button><h1>'+esc(c.name)+'</h1><div class="mut">'+(c.phone?esc(c.phone):'')+'</div>'
-  +'<label for="mf">'+(isPk(c)?"Pack":"Month")+'</label><select id="mf" onchange="setMF(this.value,\''+id+'\')"><option value="all">'+(isPk(c)?"All packs":"All months")+'</option>'+ms.map(k=>'<option value="'+k+'"'+(k===mf?" selected":"")+'>'+glabel(c,k)+(mi[k]&&mi[k].settled?" – Settled":"")+'</option>').join("")+'</select>'+(mo&&mi[mf]?'<div class="card" style="margin-top:8px"><b>'+glabel(c,mf)+'</b> · '+(mi[mf].settled?'<b class="ok">Settled</b>':mi[mf].cost>0?'<b class="bad">Due '+money(mi[mf].due)+'</b>':'No fee')+'</div>':'')
-  +'<div class="grid" style="margin-top:12px"><div class="stat">Sessions attended<b>'+present+'</b></div><div class="stat">Sessions left<b>'+(total-present)+'</b></div><div class="stat">Days absent<b>'+absent+'</b></div><div class="stat">Pack total<b>'+total+'</b></div><div class="stat">Total paid<b class="ok">'+money(paid)+'</b></div><div class="stat">Still to pay<b '+(due>0?'class="bad"':'')+'>'+money(due)+'</b></div><div class="stat">Price per session<b>'+money(ps)+'</b></div><div class="stat">Total price<b>'+money(price)+'</b></div></div>'
-  +'<div class="btns"><button class="pri" style="margin:0" onclick="sessionForm(\''+id+'\')">+ Class date</button><button class="pri" style="margin:0" onclick="payForm(\''+id+'\')">+ Payment</button></div>'
-  +'<h2>Class dates (tick when attended)</h2>' +(ss.length?ss.map((x,ix)=>'<div class="card"><div class="row"><label class="chk"><input type="checkbox" '+(x.done?"checked ":"")+'onchange="tick(\''+id+'\','+c.sessions.indexOf(x)+',this.checked)"><span>'+fd(x.date)+'</span></label><span class="'+(x.done?"ok":(x.date<today()?"bad":"mut"))+'">'+(x.done?"Present":(x.date<today()?"Absent":"Upcoming"))+'</span><button class="x" onclick="del(\''+id+'\',\'sessions\','+c.sessions.indexOf(x)+')">×</button></div>'+(isPk(c)?'<div style="margin-top:8px"><div class="mut" style="margin-bottom:6px">Class type · '+money(x.price||0)+' Toman</div><label class="chk" style="margin:6px 0"><input type="checkbox" '+(sessionType(c,x)==='private'?'checked':'')+' onchange="changeSessionType(\''+id+'\','+c.sessions.indexOf(x)+',\'private\')"><span>Private · '+money(rate(c,'private'))+' Toman</span></label><label class="chk" style="margin:6px 0"><input type="checkbox" '+(sessionType(c,x)==='semi'?'checked':'')+' onchange="changeSessionType(\''+id+'\','+c.sessions.indexOf(x)+',\'semi\')"><span>Semi-private · '+money(rate(c,'semi'))+' Toman</span></label></div>':'')+(x.note?'<div class="mut" style="margin-top:6px">'+esc(x.note)+'</div>':'')+'<button class="ghost" style="margin-top:8px;padding:6px 12px;font-size:14px" onclick="noteForm(\''+id+'\','+c.sessions.indexOf(x)+')">'+(x.note?"Edit comment":"Add comment")+'</button></div>'+((ix===ss.length-1||gkey(c,ss[ix+1])!==gkey(c,x))&&mi[gkey(c,x)]&&mi[gkey(c,x)].settled?'<div class="ok" style="text-align:right;margin:0 4px 10px;font-weight:600">'+glabel(c,gkey(c,x))+' – Settled</div>':'')).join(""):'<p class="mut">No dates yet. Tap “+ Class date” to add one.</p>')
-  +'<h2>Payments</h2>'+(pp.length?pp.map(x=>'<div class="card row"><span>'+fd(x.date)+'</span><b>'+money(x.amount)+'</b><button class="x" onclick="del(\''+id+'\',\'payments\','+c.payments.indexOf(x)+')">×</button></div>').join(""):'<p class="mut">None yet.</p>')
-  +'<button class="ghost" style="width:100%;margin-top:16px" onclick="clientForm(\''+id+'\')">Edit client</button>';
-}
-function del(id,k,i){const c=byId(id);c[k].splice(i,1);if(k==="sessions"&&isPk(c))recalcPack(c);save();detail(id)}
-function tick(id,i,v){byId(id).sessions[i].done=v;save();const y=window.scrollY;detail(id);window.scrollTo(0,y)}
-
-function form(title,fields,onSave,back,extra){
-  app.innerHTML='<button class="back" id="bk">‹ Back</button><h1>'+title+'</h1>'+fields.map((f,i)=>'<label for="f'+i+'">'+f.label+'</label>'+(f.type==="weekdays"?wdField(i,f.val):f.type==="month"?monthField(i,f.val):f.type==="date"&&isJ()?dateField(i,f.val):f.type==="select"?'<select id="f'+i+'">'+f.opts.map(o=>'<option'+(o===f.val?" selected":"")+'>'+o+'</option>').join("")+'</select>':f.type==="textarea"?'<textarea id="f'+i+'" rows="6">'+esc(f.val)+'</textarea>':'<input id="f'+i+'" type="'+(f.type||"text")+'"'+(f.type==="number"?' inputmode="numeric" step="1"':'')+' value="'+esc(f.val)+'">')).join("")+'<button class="pri" id="sv">Save</button>'+(extra?'<button class="danger" id="ex">'+extra.label+'</button>':'');
-  $("bk").onclick=back;
-  $("sv").onclick=()=>{const v=fields.map(readField);onSave(v)};
-  if(extra)$("ex").onclick=extra.fn;
-}
-function clientForm(id){
-  const c=id?byId(id):null,k=mkey(today());
-  const fl=c?[{label:"Name",val:c.name},{label:"Phone",type:"tel",val:c.phone},{label:"Total sessions",type:"number",val:c.packTotal},{label:"Total price to pay (Toman)",type:"number",val:c.price}]
-   :[{label:"Name",val:""},{label:"Phone",type:"tel",val:""},{label:"Class type",type:"select",opts:["Group (monthly)","Private (8 sessions)"],val:"Group (monthly)"},{label:"Class days each week",type:"weekdays",val:[]},{label:"Month (Group only)",type:"month",val:k},{label:"Start date (Private only)",type:"date",val:today()},{label:"Price per session in Toman (empty = saved price for this type)",type:"number",val:""},{label:"Create the class dates for me?",type:"select",opts:["Yes","No"],val:"Yes"}];
-  form(c?"Edit client":"New client",fl,v=>{
-    if(!v[0]){alert("Please enter a name");return}
-    if(c){Object.assign(c,{name:v[0],phone:v[1],packTotal:parseFloat(v[2])||0,price:parseFloat(v[3])||0});save();detail(c.id);return}
-    const t=v[2].startsWith("Private")?"private":"group",days=v[3]?v[3].split(",").map(Number):[];
-    if(!days.length){alert("Choose at least one class day");return}
-    const entered=v[6]!==""?(parseFloat(v[6])||0):dp(t),ps=t==="group"?entered:(dp("private")||entered),ds=t!=="group"?nextDates(v[5]||today(),days,8):monthDates(v[4],days),nid=Date.now().toString(36);
-    db.clients.push({id:nid,name:v[0],phone:v[1],type:t,days:days,packTotal:ds.length,perSession:ps,price:ps*ds.length,sessions:v[7]==="Yes"?ds.map(d=>({date:d,done:false,price:ps,pack:1,...(t!=="group"?{classType:"private"}:{})})):[],payments:[]});
-    save();detail(nid)},
-  ()=>c?detail(id):home(),
-  c?{label:"Delete client (tap twice)",fn:function(){if(armed!==id){armed=id;this.textContent="Tap again to delete for good";return}db.clients=db.clients.filter(x=>x.id!==id);save();home()}}:null);
-}
-function sessionForm(id){const c=byId(id),pk=isPk(c),m0=pk?"New 8-session pack":"Whole month by weekdays";form("Add class dates",[{label:"What do you want to add?",type:"select",opts:[m0,"One single date"],val:m0},{label:"Class days each week",type:"weekdays",val:c.days||[]},pk?{label:"Start date of the pack",type:"date",val:today()}:{label:"Month",type:"month",val:mkey(today())},{label:"Price per session in Toman",type:"number",val:c.perSession||dp(c.type||"group")},{label:"Date (for one single date)",type:"date",val:today()},{label:"Comment (optional, for one single date)",type:"textarea",val:""},...(pk?[{label:"Type of new sessions",type:"select",opts:["Private","Semi-private"],val:"Private"}]:[])],v=>{
-  const ct=pk?(v[6]==="Semi-private"?"semi":"private"):null;
-  if(v[0]==="One single date"){c.sessions.push({date:v[4]||today(),done:false,price:pk?rate(c,ct):0,pack:pk?Math.max(1,nextPack(c)-1):undefined,note:v[5],...(pk?{classType:ct}:{})});if(pk)recalcPack(c);save();detail(id);return}
-  const days=v[1]?v[1].split(",").map(Number):[];if(!days.length){alert("Choose at least one class day");return}
-  c.days=days;const ps=pk?rate(c,ct):(parseFloat(v[3])||0);
-  if(pk){const ds=nextDates(v[2]||today(),days,8),pn=nextPack(c),sessionPrice=rate(c,ct);c.packTotal+=8;c.perSession=dp("private")||c.perSession;ds.forEach(d=>c.sessions.push({date:d,done:false,price:sessionPrice,pack:pn,classType:ct}));recalcPack(c);save();detail(id);return}
-  const have=new Set(c.sessions.map(x=>x.date)),ds=monthDates(v[2],days).filter(d=>!have.has(d));
-  c.packTotal+=ds.length;c.perSession=ps;c.price+=ps*ds.length;ds.forEach(d=>c.sessions.push({date:d,done:false,price:ps}));save();detail(id)},()=>detail(id))}
-function noteForm(id,i){const x=byId(id).sessions[i];form("Comment for "+fd(x.date),[{label:"Reason or note (for example: sick, travel)",type:"textarea",val:x.note||""}],v=>{x.note=v[0];save();detail(id)},()=>detail(id))}
-function payForm(id){form("Add payment",[{label:"Date",type:"date",val:today()},{label:"Amount (Toman)",type:"number",val:""}],v=>{const a=parseFloat(v[1]);if(!(a>0)){alert("Enter an amount");return}byId(id).payments.push({date:v[0]||today(),amount:a});save();detail(id)},()=>detail(id))}
-function bkName(){const d=new Date(),t=String(d.getHours()).padStart(2,"0")+String(d.getMinutes()).padStart(2,"0");let ds=today();try{if(isJ()){const j=toJ(ds);ds=j[0]+"-"+String(j[1]).padStart(2,"0")+"-"+String(j[2]).padStart(2,"0")}}catch(e){}return "yoga-backup-"+ds+"-"+t+".json"}
-function backup(){
-  const t=JSON.stringify(db,null,1),n=bkName();
-  app.innerHTML='<button class="back" id="bk">‹ Back</button><h1>Backup</h1><p class="mut">File name: <b>'+n+'</b></p><button class="pri" id="bf">Save backup file</button><button class="ghost" style="width:100%;margin-top:8px" id="bc">Copy as text</button><label for="bt">Backup text</label><textarea id="bt" rows="6" readonly>'+esc(t)+'</textarea><p class="note" id="bm"></p>';
-  $("bk").onclick=home;
-  const msg=x=>{$("bm").textContent=x},done=()=>{db.lastBackup=today();save()};
-  $("bf").onclick=async()=>{
-    const f=new File([t],n,{type:"application/json"});
-    try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:n});done();msg("Choose “Save to Files” in the share menu.");return}}catch(e){if(e&&e.name==="AbortError")return}
-    try{const u=URL.createObjectURL(new Blob([t],{type:"application/json"})),a=document.createElement("a");a.href=u;a.download=n;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);done();msg("Saved as "+n+" (check your Downloads).")}catch(e){msg("Could not save a file here. Use Copy as text.")}
-  };
-  $("bc").onclick=async()=>{try{await navigator.clipboard.writeText(t);done();msg("Copied. Paste it in Notes.")}catch(e){$("bt").select();msg("Select all and copy the text.")}};
-}
-function restore(){
-  app.innerHTML='<button class="back" id="bk">‹ Back</button><h1>Restore backup</h1><p class="mut">This replaces the current data.</p><label for="rf">Choose a backup file</label><input id="rf" type="file" accept=".json,application/json,text/plain"><label for="rt">Or paste the backup text</label><textarea id="rt" rows="6"></textarea><button class="pri" id="rs">Restore</button><p class="note" id="rm"></p>';
-  $("bk").onclick=home;
-  const apply=txt=>{try{const d=JSON.parse(txt);if(!Array.isArray(d.clients))throw 0;db=d;migrate();save();home()}catch(e){$("rm").textContent="That doesn’t look like a valid backup."}};
-  $("rf").onchange=()=>{const f=$("rf").files[0];if(!f)return;const r=new FileReader();r.onload=()=>apply(r.result);r.readAsText(f)};
-  $("rs").onclick=()=>apply($("rt").value);
-}
-load();home();
-if("serviceWorker" in navigator){try{navigator.serviceWorker.register("sw.js").catch(function(){})}catch(e){}}
-</script>
+<script src="app.js"></script>
 </body>
 </html>
