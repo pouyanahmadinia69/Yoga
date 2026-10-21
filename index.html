@@ -48,6 +48,217 @@ button{font-family:inherit;font-size:16px;border:0;border-radius:10px;padding:12
 </head>
 <body>
 <div id="app"></div>
-<script src="app.js"></script>
+<script>
+const K="yoga_clients_v1";
+let db={clients:[]},mem=null,armed=null;
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+function migrate(){db.clients.forEach(c=>{
+  c.sessions=(c.sessions||[]).map(s=>("done" in s)?s:{date:s.date,done:s.status==="Present"});c.payments=c.payments||[];
+  const fb=c.perSession||(c.packTotal?c.price/c.packTotal:0),ot=c.type,pk=ot==="private"||ot==="semi"||ot==="mixed";
+  c.sessions.forEach(x=>{if(!x.id)x.id=uid();if(x.price==null)x.price=fb;if(pk&&!x.classType)x.classType=ot==="semi"?"semi":"private"});
+  if(pk){c.type="private";
+    if(!c.rates){c.rates={};c.rates[ot==="semi"?"semi":"private"]=+c.perSession||0}
+    if(!c.settlements){c.settlements=[];const by={};c.sessions.forEach(x=>{const p=x.pack||1;(by[p]=by[p]||[]).push(x)});
+      let rem=c.payments.reduce((t,x)=>t+x.amount,0),n=0;
+      for(const p of Object.keys(by).map(Number).sort((a,b)=>a-b)){const arr=by[p],cost=arr.reduce((t,x)=>t+(+x.price||0),0);if(!(cost>0&&rem>=cost-.5))break;rem-=cost;n++;
+        const ds=arr.map(x=>x.date).sort(),t={id:uid(),n:n,date:ds[ds.length-1],cutoff:ds[ds.length-1],next:"",semi:arr.filter(x=>x.classType==="semi").length,priv:arr.filter(x=>x.classType!=="semi").length,amount:cost};
+        arr.forEach(x=>x.sid=t.id);c.settlements.push(t)}}}
+})}
+function load(){try{const s=localStorage.getItem(K);if(s){db=JSON.parse(s);migrate();return}}catch(e){}if(mem)db=mem}
+function save(){mem=db;try{localStorage.setItem(K,JSON.stringify(db))}catch(e){}}
+const $=id=>document.getElementById(id),app=$("app");
+const esc=s=>String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money=n=>Math.round(n).toLocaleString("en-US");
+const today=()=>{const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};
+const addDays=(iso,n)=>{const [y,m,d]=iso.split("-").map(Number),t=new Date(y,m-1,d+n);return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0")};
+const byId=id=>db.clients.find(c=>c.id===id);
+const JM=["Farvardin","Ordibehesht","Khordad","Tir","Mordad","Shahrivar","Mehr","Aban","Azar","Dey","Bahman","Esfand"];
+const isJ=()=>db.cal!=="g";
+const PF=new Intl.DateTimeFormat("en-US-u-ca-persian-nu-latn",{year:"numeric",month:"numeric",day:"numeric",timeZone:"UTC"});
+function toJ(iso){const [y,m,d]=iso.split("-").map(Number),p=PF.formatToParts(new Date(Date.UTC(y,m-1,d,12))),g=t=>+(p.find(x=>x.type===t)||p.find(x=>x.type==="relatedYear")).value;return[g("year"),g("month"),g("day")]}
+function fromJ(y,m,d){const t=y*10000+m*100+d;let ms=Date.UTC(y+621,2,21+Math.round((m-1)*30.43)+d-1,12),iso="";for(let i=0;i<12;i++){iso=new Date(ms).toISOString().slice(0,10);const j=toJ(iso),k=j[0]*10000+j[1]*100+j[2];if(k===t)break;ms+=(k<t?1:-1)*864e5}return iso}
+const DN=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function fd(iso,nw){let w="";if(!nw)try{w=" ("+DN[new Date(iso+"T12:00:00Z").getUTCDay()]+")"}catch(e){}if(!isJ())return iso+w;try{const j=toJ(iso);return j[2]+" "+JM[j[1]-1]+" "+j[0]+w}catch(e){return iso+w}}
+function dateField(i,val){let j;try{j=toJ(val||today())}catch(e){j=[1405,1,1]}const y0=toJ(today())[0];let h='<div class="row" style="gap:8px"><select id="f'+i+'d">';for(let d=1;d<=31;d++)h+='<option'+(d===j[2]?" selected":"")+'>'+d+'</option>';h+='</select><select id="f'+i+'m">';JM.forEach((n,k)=>{h+='<option value="'+(k+1)+'"'+(k+1===j[1]?" selected":"")+'>'+n+'</option>'});h+='</select><select id="f'+i+'y">';for(let y=y0-2;y<=y0+5;y++)h+='<option'+(y===j[0]?" selected":"")+'>'+y+'</option>';return h+'</select></div>'}
+function readDate(i){return fromJ(+$("f"+i+"y").value,+$("f"+i+"m").value,+$("f"+i+"d").value)}
+function toggleCal(){db.cal=isJ()?"g":"j";save();home()}
+let mf="all";
+const GM=["January","February","March","April","May","June","July","August","September","October","November","December"];
+function mkey(iso){if(isJ()){const j=toJ(iso);return j[0]+"-"+String(j[1]).padStart(2,"0")}return iso.slice(0,7)}
+function mlabel(k){const a=k.split("-").map(Number);return (isJ()?JM:GM)[a[1]-1]+" "+a[0]}
+function setMF(v,id){mf=v;detail(id)}
+const WD=[[6,"Saturday"],[0,"Sunday"],[1,"Monday"],[2,"Tuesday"],[3,"Wednesday"],[4,"Thursday"],[5,"Friday"]];
+function wdField(i,val){return WD.map(w=>'<label class="chk" style="margin:6px 0"><input type="checkbox" id="f'+i+'w'+w[0]+'"'+((val||[]).includes(w[0])?" checked":"")+'><span>'+w[1]+'</span></label>').join("")}
+function monthField(i,val){const a=val.split("-").map(Number);let h='<div class="row" style="gap:8px"><select id="f'+i+'m">';(isJ()?JM:GM).forEach((n,k)=>{h+='<option value="'+(k+1)+'"'+(k+1===a[1]?" selected":"")+'>'+n+'</option>'});h+='</select><select id="f'+i+'y">';for(let y=a[0]-1;y<=a[0]+3;y++)h+='<option'+(y===a[0]?" selected":"")+'>'+y+'</option>';return h+'</select></div>'}
+function readField(f,i){if(f.type==="weekdays")return WD.filter(w=>$("f"+i+"w"+w[0]).checked).map(w=>w[0]).join(",");if(f.type==="month")return $("f"+i+"y").value+"-"+String($("f"+i+"m").value).padStart(2,"0");if(f.type==="date"&&isJ())return readDate(i);return $("f"+i).value.trim()}
+function monthDates(key,days){const a=key.split("-").map(Number),st=isJ()?fromJ(a[0],a[1],1):key+"-01",out=[];for(let k=0;k<32;k++){const d=addDays(st,k);if(mkey(d)!==key)break;if(days.includes(new Date(d+"T12:00:00Z").getUTCDay()))out.push(d)}return out}
+const isPk=c=>c.type==="private"||c.type==="semi"||c.type==="mixed";
+const typeLabel=c=>isPk(c)?"Private / Semi":"Group";
+const dp=t=>(db.prices||{})[t]||0;
+const live=c=>c.sessions.filter(x=>!x.cancelled);
+const px=(c,x)=>x.price!=null?(+x.price||0):(c.perSession||0);
+const sessionType=(c,x)=>x.classType||"private";
+const rate=(c,t)=>dp(t)||((c.rates||{})[t])||0;
+const pad=n=>String(n).padStart(3,"0"),skey=t=>"s"+pad(t.n);
+const sOf=(c,k)=>(c.settlements||[]).find(t=>skey(t)===k);
+function gkey(c,x){if(!isPk(c))return mkey(x.date);const t=x.sid&&(c.settlements||[]).find(q=>q.id===x.sid);return t?skey(t):"open"}
+const ko=k=>k==="open"?"~":k;
+const kcmp=(a,b)=>ko(a)<ko(b)?-1:ko(a)>ko(b)?1:0;
+const pstart=c=>{const ts=(c.settlements||[]).slice().sort((a,b)=>a.n-b.n);return ts.length?(ts[ts.length-1].next||""):""};
+function tally(c,arr){const r={semi:0,priv:0,semiHeld:0,privHeld:0,semiAmt:0,privAmt:0,amount:0};arr.forEach(x=>{const a=px(c,x);r.amount+=a;if(sessionType(c,x)==="semi"){r.semi++;r.semiAmt+=a;if(x.done)r.semiHeld++}else{r.priv++;r.privAmt+=a;if(x.done)r.privHeld++}});return r}
+const ready=t=>!!t&&t.semiHeld>=8;
+function monthInfo(c){const cost={};if(isPk(c))(c.settlements||[]).forEach(t=>{cost[skey(t)]=0});live(c).forEach(x=>{const k=gkey(c,x);cost[k]=(cost[k]||0)+px(c,x)});let rem=c.payments.reduce((t,x)=>t+x.amount,0);const out={};Object.keys(cost).sort(kcmp).forEach(k=>{const co=cost[k],used=Math.min(rem,co);rem-=used;const closed=isPk(c)?k!=="open":true;out[k]={cost:co,paid:used,due:co-used,closed:closed,settled:closed&&co>0&&co-used<.5}});return out}
+function span(c,k){const d=c.sessions.filter(x=>gkey(c,x)===k).map(x=>x.date).sort();return d.length?fd(d[0],1)+" – "+fd(d[d.length-1],1):""}
+function glabel(c,k){if(!isPk(c))return mlabel(k);if(k==="open")return "Current period";const t=sOf(c,k),sp=span(c,k);return "Settlement "+(t?t.n:Number(k.slice(1)))+(sp?" ("+sp+")":"")}
+function payIn(c,k,x){if(!isPk(c))return mkey(x.date)===k;const ts=(c.settlements||[]).slice().sort((a,b)=>a.n-b.n);if(k==="open")return x.date>(ts.length?ts[ts.length-1].date:"");const i=ts.findIndex(t=>skey(t)===k);if(i<0)return false;return x.date>(i>0?ts[i-1].date:"")&&x.date<=ts[i].date}
+function nextDates(start,days,n){const out=[];for(let k=0;k<400&&out.length<n;k++){const d=addDays(start,k);if(days.includes(new Date(d+"T12:00:00Z").getUTCDay()))out.push(d)}return out}
+function prices(){const p=db.prices||{};form("Class prices (Toman per session)",[{label:"Private",type:"number",val:p.private||0},{label:"Semi-private",type:"number",val:p.semi||0},{label:"Group (monthly)",type:"number",val:p.group||0}],v=>{db.prices={private:parseFloat(v[0])||0,semi:parseFloat(v[1])||0,group:parseFloat(v[2])||0};save();home()},home)}
+function stats(c){const L=live(c),p=L.filter(s=>s.done).length,a=L.filter(s=>!s.done&&s.date<today()).length,cost=L.reduce((n,x)=>n+px(c,x),0),paid=c.payments.reduce((t,x)=>t+x.amount,0);return{p,a,cx:c.sessions.length-L.length,left:L.length-p,total:L.length,cost,paid,due:Math.max(0,cost-paid),open:isPk(c)?tally(c,L.filter(x=>!x.sid)):null}}
+function stat(l,v,cls,sub){return '<div class="stat">'+l+'<b'+(cls?' class="'+cls+'"':'')+'>'+v+'</b>'+(sub?'<span class="mut">'+sub+'</span>':'')+'</div>'}
+function kstat(c,k,mi){const m=mi[k];if(!m)return "";if(isPk(c)&&!m.closed)return '<span class="mut">Open</span>';if(m.settled)return '<b class="ok">Settled</b>';if(m.cost<=0)return '<span class="mut">No fee</span>';return (isPk(c)?'<span class="mut">Awaiting payment · </span>':'')+'<b class="bad">Due '+money(m.due)+'</b>'}
+function home(){
+  armed=null;mf="all";app.onchange=null;
+  app.innerHTML='<h1>Clients</h1><input id="q" placeholder="Search by name" autocomplete="off"><div id="list"></div><button class="pri" onclick="clientForm()">+ New client</button><div class="btns"><button class="ghost" onclick="backup()">Copy backup</button><button class="ghost" onclick="restore()">Restore</button></div><button class="ghost" style="width:100%;margin-top:8px" onclick="prices()">Class prices</button><button class="ghost" style="width:100%;margin-top:8px" onclick="toggleCal()">Calendar: '+(isJ()?"Persian":"Gregorian")+' (tap to switch)</button><p class="note">All data is stored only on this phone.'+(db.lastBackup?' Last backup: '+esc(fd(db.lastBackup)):' No backup yet.')+'</p>';
+  $("q").oninput=list;list();
+}
+function list(){
+  const q=$("q").value.trim().toLowerCase();
+  const cs=db.clients.filter(c=>c.name.toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
+  $("list").innerHTML=cs.length?cs.map(c=>{const s=stats(c),o=s.open;return '<div class="card" onclick="detail(\''+c.id+'\')"><div class="row"><b>'+esc(c.name)+'</b>'+(s.due>0?'<span class="badge bad">Due '+money(s.due)+'</span>':'<span class="badge ok">Paid up</span>')+'</div><div class="mut">'+typeLabel(c)+' · '+s.left+' sessions left · '+s.p+' attended</div>'+(o?'<div class="mut">Open period: Semi '+o.semi+' · Private '+o.priv+(ready(o)?' · <b class="ok">Ready to settle</b>':'')+'</div>':'')+'</div>'}).join(""):'<p class="mut">'+(db.clients.length?"No match.":"No clients yet. Tap “New client” to add your first one.")+'</p>';
+}
+function detail(id){
+  armed=null;app.onchange=null;const c=byId(id);if(!c)return home();
+  const pk=isPk(c),s=stats(c),mi=monthInfo(c),td=today();
+  let ms=[...new Set((pk?c.sessions:[...c.sessions,...c.payments]).map(x=>gkey(c,x)))];
+  if(pk)(c.settlements||[]).forEach(t=>{if(!ms.includes(skey(t)))ms.push(skey(t))});
+  ms=ms.sort(kcmp).reverse();
+  if(mf!=="all"&&!ms.includes(mf))mf="all";
+  const mo=mf!=="all";
+  const ss=c.sessions.filter(x=>!mo||gkey(c,x)===mf).sort((a,b)=>{const ka=gkey(c,a),kb=gkey(c,b);return ka!==kb?kcmp(ka,kb):a.date.localeCompare(b.date)});
+  const pp=c.payments.filter(x=>!mo||payIn(c,mf,x)).sort((a,b)=>b.date.localeCompare(a.date));
+  const L=ss.filter(x=>!x.cancelled),present=L.filter(x=>x.done).length,absent=L.filter(x=>!x.done&&x.date<td).length,cxn=ss.length-L.length,mm=mi[mf]||{cost:0,paid:0,due:0};
+  const cost=mo?mm.cost:s.cost,paid=mo?mm.paid:s.paid,due=mo?mm.due:s.due,t=pk?tally(c,L):null,ps=mo?(L.length?px(c,L[0]):0):(c.perSession||0);
+  const grid=pk?[stat("Sessions attended",present),stat("Sessions left",L.length-present),stat("Days absent",absent),stat("Cancelled",cxn),stat("Private sessions",t.priv,"",money(t.privAmt)+" Toman"),stat("Semi-private sessions",t.semi,"",money(t.semiAmt)+" Toman"),stat("Total price",money(cost)),stat("Total paid",money(paid),"ok"),stat("Still to pay",money(due),due>0?"bad":"")]:[stat("Sessions attended",present),stat("Sessions left",L.length-present),stat("Days absent",absent),stat("Cancelled",cxn),stat("Sessions total",L.length),stat("Price per session",money(ps)),stat("Total price",money(cost)),stat("Total paid",money(paid),"ok"),stat("Still to pay",money(due),due>0?"bad":"")];
+  if(pk&&!mo&&(c.settlements||[]).length)grid.push(stat("Not settled yet",money(s.open.amount)));
+  const o=s.open,per=pk?'<div class="card'+(ready(o)?' hl':'')+'"><div class="row"><b>Current period</b><span class="mut">'+(pstart(c)?'since '+fd(pstart(c),1):'')+'</span></div><div style="margin-top:6px">Semi-private: <b>'+o.semiHeld+'</b> held of '+o.semi+' booked<br>Private: <b>'+o.privHeld+'</b> held of '+o.priv+' booked</div><div class="mut" style="margin-top:4px">Not settled yet: '+money(o.amount)+' Toman</div>'+(ready(o)?'<div class="ok" style="margin-top:6px;font-weight:600">8 semi-private sessions are done. Time to settle.</div>':'')+'<button class="pri" style="margin-top:10px" onclick="settleForm(\''+id+'\')">Settle account</button></div>':'';
+  let prev=null;
+  const sess=ss.length?ss.map(x=>{
+    const i=c.sessions.indexOf(x),k=gkey(c,x),lock=!!x.sid,cx=!!x.cancelled,past=x.date<td,st=cx?"Cancelled":x.done?"Present":(past?"Absent":"Upcoming"),cl=cx?"mut":x.done?"ok":(past?"bad":"mut");
+    const hd=(!mo&&k!==prev)?'<div class="row" style="margin:16px 4px 2px"><b>'+glabel(c,k)+'</b>'+kstat(c,k,mi)+'</div>':'';prev=k;
+    const ty=sessionType(c,x);
+    return hd+'<div class="card"><div class="row"><label class="chk"><input type="checkbox" '+(x.done?"checked ":"")+(cx?"disabled ":"")+'onchange="tick(\''+id+'\','+i+',this.checked)"><span'+(cx?' class="strike"':'')+'>'+fd(x.date)+'</span></label><span class="'+cl+'">'+st+'</span>'+(lock?'<span class="mut">🔒</span>':'<button class="x" onclick="del(\''+id+'\',\'sessions\','+i+')">×</button>')+'</div>'
+    +(pk?'<div style="margin-top:8px"><div class="mut">'+(ty==="semi"?"Semi-private":"Private")+' · '+(cx?'Not charged':'Charged '+money(px(c,x))+' Toman')+'</div>'+((cx||lock)?'':'<label class="chk" style="margin:6px 0"><input type="checkbox" '+(ty==='private'?'checked':'')+' onchange="changeSessionType(\''+id+'\','+i+',\'private\')"><span>Private · '+money(rate(c,'private'))+' Toman</span></label><label class="chk" style="margin:6px 0"><input type="checkbox" '+(ty==='semi'?'checked':'')+' onchange="changeSessionType(\''+id+'\','+i+',\'semi\')"><span>Semi-private · '+money(rate(c,'semi'))+' Toman</span></label>')+'</div>':'')
+    +(x.note?'<div class="mut" style="margin-top:6px">'+esc(x.note)+'</div>':'')
+    +'<div class="btns" style="margin-top:8px"><button class="ghost sm" onclick="noteForm(\''+id+'\','+i+')">'+(x.note?"Edit comment":"Add comment")+'</button>'+(pk&&!lock&&!cx?'<button class="ghost sm" onclick="priceForm(\''+id+'\','+i+')">Edit price</button>':'')+(lock?'':'<button class="ghost sm" onclick="cancelSess(\''+id+'\','+i+')">'+(cx?"Restore":"Cancel session")+'</button>')+'</div></div>'}).join(""):'<p class="mut">No dates yet. Tap “+ Class date” to add one.</p>';
+  const hist=pk&&!mo&&(c.settlements||[]).length?'<h2>Settlements</h2>'+c.settlements.slice().sort((a,b)=>b.n-a.n).map((t,ix)=>{const k=skey(t),m=mi[k]||{cost:0,paid:0,due:0},tt=tally(c,live(c).filter(x=>x.sid===t.id));return '<div class="card"><div class="row"><b>Settlement '+t.n+'</b><span class="mut">'+fd(t.date)+'</span></div><div class="mut">'+span(c,k)+'</div><div style="margin-top:4px">Semi-private '+tt.semi+' · Private '+tt.priv+'</div><div class="row" style="margin-top:4px"><b>'+money(m.cost)+' Toman</b>'+kstat(c,k,mi)+'</div>'+(t.note?'<div class="mut" style="margin-top:4px">'+esc(t.note)+'</div>':'')+(ix===0?'<button class="danger" style="margin-top:8px" onclick="undoSettle(\''+id+'\',this)">Undo this settlement</button>':'')+'</div>'}).join(""):'';
+  app.innerHTML='<button class="back" onclick="home()">‹ All clients</button><h1>'+esc(c.name)+'</h1><div class="mut">'+(c.phone?esc(c.phone):'')+'</div>'
+  +per+'<label for="mf">'+(pk?"Period":"Month")+'</label><select id="mf" onchange="setMF(this.value,\''+id+'\')"><option value="all">'+(pk?"All periods":"All months")+'</option>'+ms.map(k=>'<option value="'+k+'"'+(k===mf?" selected":"")+'>'+glabel(c,k)+(mi[k]&&mi[k].settled?" – Settled":"")+'</option>').join("")+'</select>'+(mo&&mi[mf]?'<div class="card" style="margin-top:8px"><b>'+glabel(c,mf)+'</b> · '+kstat(c,mf,mi)+'</div>':'')
+  +'<div class="grid" style="margin-top:12px">'+grid.join("")+'</div>'
+  +'<div class="btns"><button class="pri" style="margin:0" onclick="sessionForm(\''+id+'\')">+ Class date</button><button class="pri" style="margin:0" onclick="payForm(\''+id+'\')">+ Payment</button></div>'
+  +'<h2>Class dates (tick when attended)</h2>'+sess+hist
+  +'<h2>Payments</h2>'+(pp.length?pp.map(x=>'<div class="card row"><span>'+fd(x.date)+'</span><b>'+money(x.amount)+'</b><button class="x" onclick="del(\''+id+'\',\'payments\','+c.payments.indexOf(x)+')">×</button></div>').join(""):'<p class="mut">None yet.</p>')
+  +'<button class="ghost" style="width:100%;margin-top:16px" onclick="clientForm(\''+id+'\')">Edit client</button>';
+}
+function keep(id){const y=window.scrollY;detail(id);window.scrollTo(0,y)}
+function del(id,k,i){const c=byId(id);if(k==="sessions"&&c.sessions[i].sid){alert("This session belongs to a settled period and is locked.");return}c[k].splice(i,1);save();detail(id)}
+function tick(id,i,v){const x=byId(id).sessions[i];if(x.cancelled)return;x.done=v;save();keep(id)}
+function cancelSess(id,i){const x=byId(id).sessions[i];if(x.sid){alert("This session belongs to a settled period and is locked.");return}x.cancelled=!x.cancelled;if(x.cancelled)x.done=false;save();keep(id)}
+function changeSessionType(id,i,t){const c=byId(id),x=c.sessions[i];if(!c||!isPk(c)||x.sid||!["private","semi"].includes(t))return;const p=rate(c,t);if(!p&&!confirm("No price is set for this class type. Set this session price to zero?"))return keep(id);x.classType=t;x.price=p;save();keep(id)}
+function priceForm(id,i){const x=byId(id).sessions[i];form("Price for "+fd(x.date,1),[{label:"Price of this session (Toman)",type:"number",val:x.price||0}],v=>{x.price=parseFloat(v[0])||0;save();detail(id)},()=>detail(id))}
+function undoSettle(id,btn){const c=byId(id),t=(c.settlements||[]).slice().sort((a,b)=>b.n-a.n)[0];if(!t)return;if(armed!=="u"+id){armed="u"+id;btn.textContent="Tap again to undo (payments stay)";return}c.sessions.forEach(x=>{if(x.sid===t.id)delete x.sid});c.settlements=c.settlements.filter(q=>q.id!==t.id);save();detail(id)}
+function settleForm(id){
+  const c=byId(id),open=c.sessions.filter(x=>!x.sid),lv=open.filter(x=>!x.cancelled);
+  if(!lv.length){alert("There are no open sessions to settle.");return}
+  const last=lv.map(x=>x.date).sort().pop(),F=[{label:"Settlement date",type:"date",val:today()},{label:"Settle sessions up to this date",type:"date",val:last},{label:"Amount received now (Toman, 0 if nothing yet)",type:"number",val:Math.round(tally(c,lv).amount)},{label:"New period starts from",type:"date",val:addDays(last,1)},{label:"Note (optional)",type:"textarea",val:""}];
+  let touched=false;
+  form("Settle account",F,v=>{
+    const date=v[0]||today(),cut=v[1]||last,inc=open.filter(x=>x.date<=cut),liv=inc.filter(x=>!x.cancelled);
+    if(!liv.length){alert("No sessions fall on or before that date.");return}
+    const got=parseFloat(v[2])||0,t=tally(c,liv),n=Math.max(0,...(c.settlements||[]).map(q=>q.n))+1,st={id:uid(),n:n,date:date,cutoff:cut,next:v[3]||addDays(cut,1),semi:t.semi,priv:t.priv,amount:t.amount,note:v[4]};
+    c.settlements=c.settlements||[];c.settlements.push(st);inc.forEach(x=>x.sid=st.id);if(got>0)c.payments.push({date:date,amount:got,sid:st.id});save();mf="all";detail(id)},()=>detail(id));
+  const pv=document.createElement("div");pv.className="card";app.insertBefore(pv,$("sv"));
+  const upd=()=>{const cut=readField(F[1],1)||last,inc=lv.filter(x=>x.date<=cut),t=tally(c,inc),rest=lv.length-inc.length;
+    pv.innerHTML='<b>This settlement</b><div class="row" style="margin-top:6px"><span>Semi-private</span><span>'+t.semi+' sessions · '+money(t.semiAmt)+'</span></div><div class="row"><span>Private</span><span>'+t.priv+' sessions · '+money(t.privAmt)+'</span></div><div class="row" style="margin-top:4px"><b>Total</b><b>'+money(t.amount)+' Toman</b></div>'+(inc.length&&t.semi!==8?'<div class="mut" style="margin-top:6px">A usual course has 8 semi-private sessions; this one has '+t.semi+'.</div>':'')+(rest?'<div class="mut" style="margin-top:6px">'+rest+' later session(s) stay in the next period.</div>':'');
+    if(!touched)$("f2").value=Math.round(t.amount)};
+  app.onchange=e=>{if(e.target&&e.target.id==="f2")touched=true;upd()};
+  upd();
+}
+function form(title,fields,onSave,back,extra){
+  app.onchange=null;
+  app.innerHTML='<button class="back" id="bk">‹ Back</button><h1>'+title+'</h1>'+fields.map((f,i)=>'<label for="f'+i+'">'+f.label+'</label>'+(f.type==="weekdays"?wdField(i,f.val):f.type==="month"?monthField(i,f.val):f.type==="date"&&isJ()?dateField(i,f.val):f.type==="select"?'<select id="f'+i+'">'+f.opts.map(o=>'<option'+(o===f.val?" selected":"")+'>'+o+'</option>').join("")+'</select>':f.type==="textarea"?'<textarea id="f'+i+'" rows="6">'+esc(f.val)+'</textarea>':'<input id="f'+i+'" type="'+(f.type||"text")+'"'+(f.type==="number"?' inputmode="numeric" step="1"':'')+' value="'+esc(f.val)+'">')).join("")+'<button class="pri" id="sv">Save</button>'+(extra?'<button class="danger" id="ex">'+extra.label+'</button>':'');
+  $("bk").onclick=back;
+  $("sv").onclick=()=>{const v=fields.map(readField);onSave(v)};
+  if(extra)$("ex").onclick=extra.fn;
+}
+function clientForm(id){
+  const c=id?byId(id):null,k=mkey(today());
+  const fl=c?[{label:"Name",val:c.name},{label:"Phone",type:"tel",val:c.phone},...(isPk(c)?[]:[{label:"Price per session (Toman, changes all priced sessions)",type:"number",val:c.perSession||0}])]
+   :[{label:"Name",val:""},{label:"Phone",type:"tel",val:""},{label:"Class type",type:"select",opts:["Group (monthly)","Private / Semi-private (per session)"],val:"Group (monthly)"},{label:"Class days each week",type:"weekdays",val:[]},{label:"Month",type:"month",val:k},{label:"Start date",type:"date",val:today()},{label:"Session type",type:"select",opts:["Private","Semi-private"],val:"Semi-private"},{label:"Number of sessions",type:"number",val:12},{label:"Price per session in Toman (empty = saved price for this type)",type:"number",val:""},{label:"Create the class dates for me?",type:"select",opts:["Yes","No"],val:"Yes"}];
+  form(c?"Edit client":"New client",fl,v=>{
+    if(!v[0]){alert("Please enter a name");return}
+    if(c){c.name=v[0];c.phone=v[1];if(!isPk(c)&&v[2]!==undefined){const p=parseFloat(v[2])||0;if(p!==c.perSession){c.perSession=p;c.sessions.forEach(x=>{if(+x.price>0)x.price=p})}}save();detail(c.id);return}
+    const g=v[2].startsWith("Group"),ct=v[6]==="Semi-private"?"semi":"private",days=v[3]?v[3].split(",").map(Number):[],mk=v[9]==="Yes";
+    if(mk&&!days.length){alert("Choose at least one class day");return}
+    const ent=v[8]!=="",ps=ent?(parseFloat(v[8])||0):(g?dp("group"):dp(ct)),n=Math.min(60,Math.max(1,parseInt(v[7])||12)),nid=uid();
+    const ds=!mk?[]:g?monthDates(v[4],days):nextDates(v[5]||today(),days,n);
+    const nc={id:nid,name:v[0],phone:v[1],type:g?"group":"private",days:days,perSession:ps,payments:[],sessions:ds.map(d=>({id:uid(),date:d,done:false,price:ps,...(g?{}:{classType:ct})}))};
+    if(!g){nc.settlements=[];nc.rates={};if(ent)nc.rates[ct]=ps}
+    db.clients.push(nc);save();detail(nid)},
+  ()=>c?detail(id):home(),
+  c?{label:"Delete client (tap twice)",fn:function(){if(armed!==id){armed=id;this.textContent="Tap again to delete for good";return}db.clients=db.clients.filter(x=>x.id!==id);save();home()}}:null);
+  if(!c){
+    const vis=(i,show)=>{let e=app.querySelector('label[for="f'+i+'"]');if(!e)return;e.style.display=show?"":"none";e=e.nextElementSibling;while(e&&e.id!=="sv"&&!(e.tagName==="LABEL"&&!e.classList.contains("chk"))){e.style.display=show?"":"none";e=e.nextElementSibling}};
+    const sync=()=>{const g=$("f2").value.startsWith("Group");vis(4,g);[5,6,7].forEach(i=>vis(i,!g))};
+    $("f2").onchange=sync;sync();
+  }
+}
+function fvis(i,show){let e=app.querySelector('label[for="f'+i+'"]');if(!e)return;e.style.display=show?"":"none";e=e.nextElementSibling;while(e&&e.id!=="sv"&&!(e.tagName==="LABEL"&&!e.classList.contains("chk"))){e.style.display=show?"":"none";e=e.nextElementSibling}}
+function fbind(single,all){const sync=()=>{const one=$("f0").value==="One single date";all.forEach(i=>fvis(i,single.includes(i)?one:!one))};$("f0").onchange=sync;sync()}
+function chk(c,d){const p=pstart(c);return !(p&&d<p)||confirm("This date is before the current period start ("+fd(p,1)+"). Add anyway?")}
+function sessionForm(id){
+  const c=byId(id);if(isPk(c))return pkSessionForm(id);
+  form("Add class dates",[{label:"What do you want to add?",type:"select",opts:["Whole month by weekdays","One single date"],val:"Whole month by weekdays"},{label:"Class days each week",type:"weekdays",val:c.days||[]},{label:"Month",type:"month",val:mkey(today())},{label:"Price per session in Toman",type:"number",val:c.perSession||dp("group")},{label:"Date (for one single date)",type:"date",val:today()},{label:"Comment (optional, for one single date)",type:"textarea",val:""}],v=>{
+    if(v[0]==="One single date"){c.sessions.push({id:uid(),date:v[4]||today(),done:false,price:0,note:v[5]});save();detail(id);return}
+    const days=v[1]?v[1].split(",").map(Number):[];if(!days.length){alert("Choose at least one class day");return}
+    c.days=days;const ps=parseFloat(v[3])||0,have=new Set(c.sessions.map(x=>x.date)),ds=monthDates(v[2],days).filter(d=>!have.has(d));
+    c.perSession=ps;ds.forEach(d=>c.sessions.push({id:uid(),date:d,done:false,price:ps}));save();detail(id)},()=>detail(id))
+  fbind([4,5],[1,2,3,4,5]);
+}
+function pkSessionForm(id){
+  const c=byId(id);
+  form("Add class dates",[{label:"What do you want to add?",type:"select",opts:["One single date","Several dates by weekdays"],val:"One single date"},{label:"Class type",type:"select",opts:["Private","Semi-private"],val:"Semi-private"},{label:"Date (for one single date)",type:"date",val:today()},{label:"Price of each session in Toman (empty = saved price)",type:"number",val:""},{label:"Comment (optional, for one single date)",type:"textarea",val:""},{label:"Class days each week (for several dates)",type:"weekdays",val:c.days||[]},{label:"Start date (for several dates)",type:"date",val:today()},{label:"Number of sessions (for several dates)",type:"number",val:12}],v=>{
+    const ct=v[1]==="Semi-private"?"semi":"private",ex=v[3]!=="",pr=ex?(parseFloat(v[3])||0):rate(c,ct);
+    if(!ex&&!pr&&!confirm("No price is set for this class type. Add with price zero?"))return;
+    if(v[0]==="One single date"){const d=v[2]||today();if(!chk(c,d))return;c.sessions.push({id:uid(),date:d,done:false,price:pr,classType:ct,note:v[4]});save();detail(id);return}
+    const days=v[5]?v[5].split(",").map(Number):[];if(!days.length){alert("Choose at least one class day");return}
+    const n=Math.min(60,Math.max(1,parseInt(v[7])||12)),st=v[6]||today();if(!chk(c,st))return;
+    c.days=days;nextDates(st,days,n).forEach(d=>c.sessions.push({id:uid(),date:d,done:false,price:pr,classType:ct}));save();detail(id)},()=>detail(id))
+  fbind([2,4],[2,4,5,6,7]);
+}
+function noteForm(id,i){const x=byId(id).sessions[i];form("Comment for "+fd(x.date,1),[{label:"Reason or note (for example: sick, travel)",type:"textarea",val:x.note||""}],v=>{x.note=v[0];save();detail(id)},()=>detail(id))}
+function payForm(id){form("Add payment",[{label:"Date",type:"date",val:today()},{label:"Amount (Toman)",type:"number",val:""}],v=>{const a=parseFloat(v[1]);if(!(a>0)){alert("Enter an amount");return}byId(id).payments.push({date:v[0]||today(),amount:a});save();detail(id)},()=>detail(id))}
+function bkName(){const d=new Date(),t=String(d.getHours()).padStart(2,"0")+String(d.getMinutes()).padStart(2,"0");let ds=today();try{if(isJ()){const j=toJ(ds);ds=j[0]+"-"+String(j[1]).padStart(2,"0")+"-"+String(j[2]).padStart(2,"0")}}catch(e){}return "yoga-backup-"+ds+"-"+t+".json"}
+function backup(){
+  const t=JSON.stringify(db,null,1),n=bkName();
+  app.innerHTML='<button class="back" id="bk">‹ Back</button><h1>Backup</h1><p class="mut">File name: <b>'+n+'</b></p><button class="pri" id="bf">Save backup file</button><button class="ghost" style="width:100%;margin-top:8px" id="bc">Copy as text</button><label for="bt">Backup text</label><textarea id="bt" rows="6" readonly>'+esc(t)+'</textarea><p class="note" id="bm"></p>';
+  $("bk").onclick=home;
+  const msg=x=>{$("bm").textContent=x},done=()=>{db.lastBackup=today();save()};
+  $("bf").onclick=async()=>{
+    const f=new File([t],n,{type:"application/json"});
+    try{if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:n});done();msg("Choose “Save to Files” in the share menu.");return}}catch(e){if(e&&e.name==="AbortError")return}
+    try{const u=URL.createObjectURL(new Blob([t],{type:"application/json"})),a=document.createElement("a");a.href=u;a.download=n;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);done();msg("Saved as "+n+" (check your Downloads).")}catch(e){msg("Could not save a file here. Use Copy as text.")}
+  };
+  $("bc").onclick=async()=>{try{await navigator.clipboard.writeText(t);done();msg("Copied. Paste it in Notes.")}catch(e){$("bt").select();msg("Select all and copy the text.")}};
+}
+function restore(){
+  app.innerHTML='<button class="back" id="bk">‹ Back</button><h1>Restore backup</h1><p class="mut">This replaces the current data.</p><label for="rf">Choose a backup file</label><input id="rf" type="file" accept=".json,application/json,text/plain"><label for="rt">Or paste the backup text</label><textarea id="rt" rows="6"></textarea><button class="pri" id="rs">Restore</button><p class="note" id="rm"></p>';
+  $("bk").onclick=home;
+  const apply=txt=>{try{const d=JSON.parse(txt);if(!Array.isArray(d.clients))throw 0;db=d;migrate();save();home()}catch(e){$("rm").textContent="That doesn’t look like a valid backup."}};
+  $("rf").onchange=()=>{const f=$("rf").files[0];if(!f)return;const r=new FileReader();r.onload=()=>apply(r.result);r.readAsText(f)};
+  $("rs").onclick=()=>apply($("rt").value);
+}
+load();home();
+if("serviceWorker" in navigator){try{navigator.serviceWorker.register("sw.js").catch(function(){})}catch(e){}}
+</script>
 </body>
 </html>
